@@ -16,7 +16,7 @@ def build_rag_chain(retriever,with_history=True):
     llm = get_llm()
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "你是一个知识库助手,请根据资料回答用户的问题,绝对不可以给出资料中没有的信息,不要自己编造答案,资料:{context}"),
+        ("system", "你是一个知识库助手,请根据资料回答用户的问题,绝对不可以给出资料中没有的信息,不要自己编造答案,资料:{context},回答时候不需要铺垫,直接根据资料简洁回答问题,无需重复资料原文,如果资料中没有问题的答案,直接说:资料未提供相关信息"),
         MessagesPlaceholder(variable_name="history"),
         ("human", "{question}"),
     ])

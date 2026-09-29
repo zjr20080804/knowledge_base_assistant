@@ -15,11 +15,10 @@ Model = "deepseek-flash"
 #配置路径
 data_dir = root_dir / "data"
 vectorstore_dir = root_dir / "chroma_db"
-knowledge_file = data_dir / "knowledge"
+knowledge_dir = data_dir / "knowledge"
 #嵌入模型
 embedding_model = "BAAI/bge-small-zh-v1.5"
-Retrieval_k = 5
-
+Retrieval_k = 6
 
 
 
