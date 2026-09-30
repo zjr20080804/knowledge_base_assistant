@@ -13,7 +13,7 @@ def load_split():
     docs = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=300,
+        chunk_size=200,
         chunk_overlap=50,
         separators=["\n\n", "\n", "", ",", " "],
     )

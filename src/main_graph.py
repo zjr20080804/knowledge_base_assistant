@@ -41,7 +41,7 @@ def prepare():
 
 
     # 第 2 步：构建 LangGraph 图
-    REDIS_URL = "redis://localhost:6379/0"
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     memory = RedisSaver.from_conn_string(
         REDIS_URL,
         ttl={"default_ttl": 1800, "refresh_on_read": True},

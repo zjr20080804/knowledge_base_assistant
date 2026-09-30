@@ -47,7 +47,7 @@ def build_rag_graph(retriever):
         # 第 3 步：按分数从高到低排序，取 Top-3
         scored_docs = list(zip(candidates, scores))
         scored_docs.sort(key=lambda x: x[1], reverse=True)
-        top_docs = [doc for doc, _ in scored_docs[:4]]
+        top_docs = [doc for doc, _ in scored_docs[:2]]
 
         # 第 4 步：格式化后返回
         return {"context": format_docs(top_docs),
