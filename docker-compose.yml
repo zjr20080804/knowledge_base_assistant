@@ -1,0 +1,21 @@
+services:
+  redis:
+    image: redis:latest
+    container_name: kb-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  app:
+    build: .
+    container_name: kb-app
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - LANGSMITH_PROJECT=kb-assistant
+    volumes:
+      - .data:/app/data
+      - ./chroma_db:/app/chroma_db
+    env_file:
+      - ./.env
