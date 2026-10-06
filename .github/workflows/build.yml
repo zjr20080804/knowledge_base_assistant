@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +30,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/kb-assistant:latest
+          tags: ghcr.io/${{ github.repository_owner }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
