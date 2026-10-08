@@ -18,6 +18,7 @@ class RAGState(TypedDict):
     context_docs:list
     partial_summaries:list
     answer: str
+    image_url: str
     messages: Annotated[list, operator.add]
 
 
@@ -48,6 +49,15 @@ def build_rag_graph(retriever):
         ("system", "【参考资料】\n{context}"),
         MessagesPlaceholder(variable_name="messages"),
         ("human", "{question}")])
+
+    vision_prompt = ChatPromptTemplate.from_messages([
+        ("system", "你是知识库助手。结合资料和图片回答用户的问题。"),
+        MessagesPlaceholder(variable_name="messages"),
+        ("human", [
+            {"type": "text", "text": "资料：\n{context}\n\n问题：{question}"},
+            {"type": "image_url", "image_url": {"url": "{image_url}"}},
+        ]),
+    ])
 
 
     def retrieve_node(state: RAGState):
@@ -121,8 +131,19 @@ def build_rag_graph(retriever):
     def generate_node(state: RAGState):
         #context = trim_by_docs(state["context_docs"], MAX_TOKENS)
         #print(f"trim后token数：{len(ENCODER.encode(context))}")
-        chain = prompt | llm | StrOutputParser()
-        answer = chain.invoke({
+
+        if state["image_url"]:
+            chain = vision_prompt|llm|StrOutputParser()
+            answer = chain.invoke({
+                "context": state["context"],
+                "question": state["question"],
+                "messages": state["messages"],
+                "image_url": state["image_url"],
+            })
+
+        else:
+            chain = prompt | llm | StrOutputParser()
+            answer = chain.invoke({
             "context": state["context"],
             "question": state["question"],
             "messages": state["messages"],

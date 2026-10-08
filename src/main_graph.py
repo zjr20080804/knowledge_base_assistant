@@ -9,12 +9,14 @@ from src.loader_splitter import load_split
 from src.rag_graph import build_rag_graph
 from src.embedding import create_vectorstore, load_vectorstore, get_retriever
 from src.config import vectorstore_dir
-
+import base64
 
 from langchain_community.retrievers import BM25Retriever
 
 
-
+def encode_image(image_path: str) -> str:
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 def prepare():
     print("#" * 60)
@@ -77,11 +79,22 @@ def main():
         print("成功进入会话")
 
         while True:
+            image_path = input("请输入图片路径(无需传图可直接回车)：")
             question = input("请输入问题：")
             if question == "exit":
                 print("谢谢使用")
                 break
-            result = graph.invoke({"question": question, "context": "", "answer": "", "messages": []}, config)
+            image_url = ""
+            if image_path:
+                try:
+                    image_url = f"data:image/jpeg;base64,{encode_image(image_path)}"
+                    print(f"已加载图片：{image_path}")
+                except:
+                    print(f"图片路径 {image_path} 不存在")
+                    continue
+
+
+            result = graph.invoke({"question": question, "image_url": image_url, "context": "", "answer": "", "messages": []}, config)
             print("AI:",result["answer"])
 
 
