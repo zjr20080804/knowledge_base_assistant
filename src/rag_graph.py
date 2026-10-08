@@ -17,6 +17,7 @@ class RAGState(TypedDict):
     context: str
     context_docs:list
     partial_summaries:list
+    route:str
     answer: str
     image_url: str
     messages: Annotated[list, operator.add]
@@ -58,7 +59,24 @@ def build_rag_graph(retriever):
             {"type": "image_url", "image_url": {"url": "{image_url}"}},
         ]),
     ])
+    CLASSIFY_PROMPT = """判断用户问题属于哪一类：
 
+    - knowledge：需要查知识库才能回答（游戏设定、角色信息、玩法规则等）
+    - chat：回顾对话、闲聊、问候（如"刚才聊了什么"、"你好"）
+
+    只输出一个词：knowledge 或 chat
+
+    问题：{question}
+    """
+
+    def classify_node(state: RAGState):
+        prompt = ChatPromptTemplate.from_template(CLASSIFY_PROMPT)
+        chain = prompt | llm | StrOutputParser()
+        route = chain.invoke({"question": state["question"]}).strip()
+        if route not in ("knowledge", "chat"):
+            route = "knowledge"  # 兜底
+        print(f"[classify] 路由：{route}")
+        return {"route": route}
 
     def retrieve_node(state: RAGState):
         # 第 1 步：粗筛，向量检索拿 Top-20
@@ -128,6 +146,28 @@ def build_rag_graph(retriever):
         print(f"[reduce] 合并后 context 字数：{len(final_context)}")
         return {"context": final_context}
 
+    CHAT_PROMPT = """你是知识库助手。根据对话历史回答用户的问题。
+
+    对话历史：
+    {history}
+
+    用户问题：{question}
+    """
+
+    def chat_node(state: RAGState):
+        history = "\n".join(
+            f"[{m.name or m.type}]: {m.content[:200]}"
+            for m in state["messages"]
+        ) or "（无历史）"
+
+        prompt = ChatPromptTemplate.from_template(CHAT_PROMPT)
+        chain = prompt | llm | StrOutputParser()
+        answer = chain.invoke({
+            "question": state["question"],
+            "history": history,
+        })
+        return {"answer": answer}
+
     def generate_node(state: RAGState):
         #context = trim_by_docs(state["context_docs"], MAX_TOKENS)
         #print(f"trim后token数：{len(ENCODER.encode(context))}")
@@ -157,6 +197,8 @@ def build_rag_graph(retriever):
         ]}
 
     builder = StateGraph(RAGState)
+    builder.add_node("classify", classify_node)
+    builder.add_node("chat", chat_node)
     builder.add_node("retrieve", retrieve_node)
     builder.add_node("generate", generate_node)
     builder.add_node("update_history", update_history_node)
@@ -164,11 +206,18 @@ def build_rag_graph(retriever):
     builder.add_node("map_summarize", map_summarize_node)
     builder.add_node("reduce_summarize", reduce_summarize_node)
 
-    builder.add_edge(START, "retrieve")
+    builder.add_edge("classify", "chat")
+    builder.add_edge("chat", END)
+    builder.add_edge(START, "classify")
+    builder.add_conditional_edges("classify",lambda s:s["route"],{
+        "knowledge": "retrieve",
+        "chat": "chat",
+    })
     builder.add_edge("retrieve", "map_summarize")
     builder.add_edge("map_summarize", "reduce_summarize")
     builder.add_edge("reduce_summarize", "generate")
     builder.add_edge("generate", "update_history")
+    builder.add_edge("chat", "update_history")
     builder.add_edge("update_history", END)
 
     return builder
