@@ -156,7 +156,7 @@ def build_rag_graph(retriever):
 
     def chat_node(state: RAGState):
         history = "\n".join(
-            f"[{m.name or m.type}]: {m.content[:200]}"
+            f"[{m.name or m.type}]: {m.content[:1000]}"
             for m in state["messages"]
         ) or "（无历史）"
 
@@ -206,8 +206,6 @@ def build_rag_graph(retriever):
     builder.add_node("map_summarize", map_summarize_node)
     builder.add_node("reduce_summarize", reduce_summarize_node)
 
-    builder.add_edge("classify", "chat")
-    builder.add_edge("chat", END)
     builder.add_edge(START, "classify")
     builder.add_conditional_edges("classify",lambda s:s["route"],{
         "knowledge": "retrieve",
