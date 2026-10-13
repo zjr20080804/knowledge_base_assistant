@@ -28,7 +28,7 @@ class RagService:
         """
         self.graph = graph
 
-    def ask(
+    async def ask(
         self,
         question: str,
         thread_id: str,
@@ -62,7 +62,7 @@ class RagService:
         }
 
         # 3. 调用图（异步版本，不阻塞事件循环）
-        result = self.graph.invoke(initial_state, config=config)
+        result = await self.graph.ainvoke(initial_state, config=config)
 
         # 4. 提取结果
         return {

@@ -11,11 +11,10 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis import AsyncRedisSaver   # ← 换成 Async 版本
 
-from src.config import vectorstore_dir
-from src.loader_splitter import load_split
-from src.embedding import create_vectorstore, load_vectorstore
+
+from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph
 from src.api.routers import chat, health
 
@@ -38,65 +37,36 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     # 第 1 步：构建 retriever
-    # 注意：这里和第 2 讲要抽离到 src/rag_factory.py
     print("[lifespan] 加载文档...")
-    chunks = load_split()
-
-    print("[lifespan] 加载/创建向量库...")
-    if not os.path.exists(vectorstore_dir):
-        print("  首次运行，正在创建向量库...")
-        vectorstore = create_vectorstore(chunks)
-    else:
-        print("  加载已有向量库...")
-        vectorstore = load_vectorstore()
-
-    from langchain_community.retrievers import BM25Retriever
-
-    vectorstore_retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
-    bm25_retriever = BM25Retriever.from_documents(chunks)
-    bm25_retriever.k = 6
-
-    # 这里直接 import 你 main_graph.py 里的 hybrid_retrieve 和 HybridRetriever
-    # 为了不动原文件，我们在 lifespan 内部重新定义一个轻量 HybridRetriever
-    # 第 2 讲会把这些抽到公共模块
-    from src.main_graph import hybrid_retrieve
-
-    class HybridRetriever:
-        def invoke(self, question):
-            return hybrid_retrieve(question, vectorstore_retriever, bm25_retriever)
-
-    retriever = HybridRetriever()
+    retriever,chunks= build_retriever()
     print("[lifespan] retriever 构建完成")
 
-    # 第 2 步：构建 graph（含 RedisSaver checkpointer）
+    # ---------- 第 2 步：用 AsyncRedisSaver 连接 Redis + 编译图 ----------
     print("[lifespan] 连接 Redis 并编译图...")
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    memory_cm = RedisSaver.from_conn_string(
+
+    # ★ async with：让 saver 在整个应用运行期都活着
+    async with AsyncRedisSaver.from_conn_string(
         redis_url,
         ttl={"default_ttl": 1800, "refresh_on_read": True},
-    )
-    memory = memory_cm.__enter__()
-    memory.setup()
+    ) as memory:
+        # 异步 setup（初始化 Redis 结构）
+        await memory.asetup()
 
-    graph = build_rag_graph(retriever).compile(checkpointer=memory)
+        # 编译图，绑定异步 checkpointer
+        graph = build_rag_graph(retriever).compile(checkpointer=memory)
 
-    # 第 3 步：存到 app.state，供 deps.py 使用
-    app.state.graph = graph
-    app.state.memory_cm = memory_cm   # 保存上下文管理器，供关闭时 __exit__
-    app.state.retriever = retriever
+        # 存进 app.state
+        app.state.graph = graph
+        app.state.retriever = retriever
 
-    print("[lifespan] ✅ 服务启动完成")
-    print("=" * 60)
+        print("[lifespan] ✅ 服务启动完成")
+        print("=" * 60)
 
-    yield  # ← 服务在这里开始接收请求
+        yield   # ← 服务在这里开始接收请求（yield 必须在 async with 内部！）
 
-    # ---------- 关闭 ----------
-    print("[lifespan] 正在关闭...")
-    try:
-        memory_cm.__exit__(None, None, None)
-        print("[lifespan] Redis 连接已关闭")
-    except Exception as e:
-        print(f"[lifespan] 关闭 Redis 时出错: {e}")
+    # async with 退出，saver 自动关闭
+    print("[lifespan] Redis 连接已关闭")
 
 
 # ============================================================

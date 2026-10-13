@@ -156,7 +156,7 @@ def build_rag_graph(retriever):
 
     def chat_node(state: RAGState):
         history = "\n".join(
-            f"[{m.name or m.type}]: {m.content[:1000]}"
+            f"[{m.name or m.type}]: {m.content[:200]}"
             for m in state["messages"]
         ) or "（无历史）"
 

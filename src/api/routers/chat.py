@@ -17,7 +17,7 @@ router = APIRouter(tags=["chat"])
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(
+async def chat(
     req: ChatRequest,
     service: RagService = Depends(get_rag_service),
 ) -> ChatResponse:
@@ -31,7 +31,7 @@ def chat(
         {"answer": "...", "route": "knowledge"}
     """
     # 1. 调 service（业务逻辑）
-    result = service.ask(
+    result = await service.ask(
         question=req.question,
         thread_id=req.session_id,    # ← 注意：session_id 映射为 thread_id
     )
