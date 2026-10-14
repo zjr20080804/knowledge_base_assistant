@@ -17,7 +17,7 @@ from langgraph.checkpoint.redis import AsyncRedisSaver   # ← 换成 Async 版�
 from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph
 from src.api.routers import chat, health
-
+from src.config import REDIS_TTL,REDIS_URL
 
 # ============================================================
 # lifespan：启动/关闭逻辑
@@ -43,12 +43,12 @@ async def lifespan(app: FastAPI):
 
     # ---------- 第 2 步：用 AsyncRedisSaver 连接 Redis + 编译图 ----------
     print("[lifespan] 连接 Redis 并编译图...")
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
 
     # ★ async with：让 saver 在整个应用运行期都活着
     async with AsyncRedisSaver.from_conn_string(
-        redis_url,
-        ttl={"default_ttl": 1800, "refresh_on_read": True},
+        REDIS_URL,
+        ttl={"default_ttl": REDIS_TTL, "refresh_on_read": True},
     ) as memory:
         # 异步 setup（初始化 Redis 结构）
         await memory.asetup()
