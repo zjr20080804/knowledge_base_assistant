@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from langgraph.checkpoint.redis import AsyncRedisSaver   # ← 换成 Async 版本
-
+import redis.asyncio as aioredis
 
 from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph
@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
     # ---------- 第 2 步：用 AsyncRedisSaver 连接 Redis + 编译图 ----------
     print("[lifespan] 连接 Redis 并编译图...")
 
+    #创建独立的Redis客户端(用于readiness探针)
+    redis_client = aioredis.from_url(REDIS_URL,decode_responses = True)
+    app.state.redis_client = redis_client
 
     # ★ async with：让 saver 在整个应用运行期都活着
     async with AsyncRedisSaver.from_conn_string(
@@ -66,6 +69,7 @@ async def lifespan(app: FastAPI):
         yield   # ← 服务在这里开始接收请求（yield 必须在 async with 内部！）
 
     # async with 退出，saver 自动关闭
+    await redis_client.aclose()
     print("[lifespan] Redis 连接已关闭")
 
 

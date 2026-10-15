@@ -29,15 +29,34 @@ async def health() -> HealthResponse:
 
 
 @router.get("/ready")
+
 async def ready(request: Request) -> dict:
     """
     就绪检查
 
     检查依赖（graph / redis）是否已经初始化。
-    第 1 讲只检查 graph 是否存在于 app.state。
+    检查redis是否能ping通
     """
-    has_graph = hasattr(request.app.state, "graph")
+    print(f"[ready]has_graph:{hasattr(request.app.state, 'graph')}")
+    print(f"[ready]has_redis_client:{hasattr(request.app.state, 'redis_client')}")
+
+    graph = getattr(request.app.state, "graph", None)
+    has_graph = graph is not None
+
+    # 检查 Redis
+    redis_ok = False
+    redis_client = getattr(request.app.state, "redis_client", None)
+    if redis_client is not None:
+        try:
+            await redis_client.ping()
+            redis_ok = True
+        except Exception as e:
+            redis_ok = False
+            print(f"[ready]redis ping失败:{type(e).__name__} {e}")
+
+    status = "ready" if (has_graph and redis_ok) else "not_ready"
     return {
-        "status": "ready" if has_graph else "not_ready",
+        "status": status,
         "graph": has_graph,
+        "redis": redis_ok,
     }
