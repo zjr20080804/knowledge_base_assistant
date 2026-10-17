@@ -34,19 +34,7 @@ def prepare():
     return graph, memory
     # 第 3 步：测试两轮问答
 
-def hybrid_retrieve(question, vector_retriever, bm25_retriever, k=6):
-    """简单版混合检索：向量 + BM25 并集去重。"""
-    vector_docs = vector_retriever.invoke(question)
-    bm25_docs = bm25_retriever.invoke(question)
 
-    # 按文档内容去重
-    merged = {}
-    for doc in vector_docs + bm25_docs:
-        key = doc.page_content
-        if key not in merged:
-            merged[key] = doc
-
-    return list(merged.values())[:k]
 
 def main():
     graph, memory = prepare()
