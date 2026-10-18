@@ -9,9 +9,11 @@ Chat 路由
 
 from fastapi import APIRouter, Depends
 
-from src.api.deps import get_rag_service
+from src.api.deps import get_rag_service,get_rate_limiter
 from src.api.schemas import ChatRequest, ChatResponse
 from src.api.services.rag_service import RagService
+from src.api.services.rate_limiter import RateLimiter
+
 
 router = APIRouter(tags=["chat"])
 
@@ -20,6 +22,7 @@ router = APIRouter(tags=["chat"])
 async def chat(
     req: ChatRequest,
     service: RagService = Depends(get_rag_service),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> ChatResponse:
     """
     知识库问答接口
@@ -31,6 +34,8 @@ async def chat(
         {"answer": "...", "route": "knowledge"}
     """
     # 1. 调 service（业务逻辑）
+    user_key = f"rate_limit:user:{req.session_id}"
+    await limiter.check(user_key)
     result = await service.ask(
         question=req.question,
         thread_id=req.session_id,    # ← 注意：session_id 映射为 thread_id

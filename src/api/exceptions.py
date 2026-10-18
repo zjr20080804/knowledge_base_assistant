@@ -69,3 +69,14 @@ class DependencyError(AppError):
 
     code = "DEPENDENCY_ERROR"
     message = "依赖服务不可用"
+
+class RateLimitError(AppError):
+    """
+    速率限制异常
+
+    什么时候抛？
+    - 用户请求频率超过限制
+    """
+
+    code = "RATE_LIMIT_ERROR"
+    message = "请求频率超过限制"

@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import Request, Depends
 
 from src.api.services.rag_service import RagService
-
+from src.api.services.rate_limiter import RateLimiter
 
 # ============================================================
 # 依赖 1：获取已编译的 RAG graph
@@ -48,3 +48,8 @@ def get_rag_service(graph=Depends(get_graph)) -> RagService:
     - 如果你想缓存，可以加 @lru_cache，但要注意 graph 变了缓存要清
     """
     return RagService(graph)
+
+def get_rate_limiter(request: Request) -> RateLimiter:
+    """获取限流器实例"""
+    redis_client=request.app.state.redis_client
+    return RateLimiter(redis_client,max_requests=5,window_seconds=60)
