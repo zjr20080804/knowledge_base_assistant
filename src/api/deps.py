@@ -16,6 +16,8 @@ from fastapi import Request, Depends
 
 from src.api.services.rag_service import RagService
 from src.api.services.rate_limiter import RateLimiter
+from src.api.services.auth_service import AuthService
+from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
 
 # ============================================================
 # 依赖 1：获取已编译的 RAG graph
@@ -53,3 +55,15 @@ def get_rate_limiter(request: Request) -> RateLimiter:
     """获取限流器实例"""
     redis_client=request.app.state.redis_client
     return RateLimiter(redis_client,max_requests=5,window_seconds=60)
+
+security = HTTPBearer()
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    """
+    从 Authorization Header 中提取 Token 并验证
+    格式必须为：Bearer <token>
+    """
+
+    token = credentials.credentials
+
+
+    return AuthService.verify_token(token)

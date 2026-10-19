@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_TTL: int = 1800
 
+    # ----JWT配置----
+    JWT_SECRET_KEY: str = "super-secret-key-change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60
+
     # ---- 路径（计算属性）----
     @property
     def data_dir(self) -> Path:
@@ -93,3 +98,7 @@ knowledge_dir = settings.knowledge_dir
 
 REDIS_URL = settings.REDIS_URL
 REDIS_TTL = settings.REDIS_TTL
+
+JWT_SECRET_KEY = settings.JWT_SECRET_KEY
+JWT_ALGORITHM = settings.JWT_ALGORITHM
+JWT_EXPIRE_MINUTES = settings.JWT_EXPIRE_MINUTES

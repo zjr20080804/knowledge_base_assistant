@@ -17,7 +17,7 @@ import redis.asyncio as aioredis
 
 from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph
-from src.api.routers import chat, health
+from src.api.routers import chat, health,auth
 from src.config import REDIS_TTL,REDIS_URL
 from src.api.logger import setup_logging,logger
 from src.api.exceptions import AppError
@@ -95,5 +95,6 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(auth.router)
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)

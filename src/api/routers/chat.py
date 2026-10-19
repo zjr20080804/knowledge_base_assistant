@@ -13,7 +13,8 @@ from src.api.deps import get_rag_service,get_rate_limiter
 from src.api.schemas import ChatRequest, ChatResponse
 from src.api.services.rag_service import RagService
 from src.api.services.rate_limiter import RateLimiter
-
+from src.api.deps import get_current_user
+from src.api.logger import logger
 
 router = APIRouter(tags=["chat"])
 
@@ -23,6 +24,7 @@ async def chat(
     req: ChatRequest,
     service: RagService = Depends(get_rag_service),
     limiter: RateLimiter = Depends(get_rate_limiter),
+ current_user: str = Depends(get_current_user)
 ) -> ChatResponse:
     """
     知识库问答接口
@@ -34,6 +36,7 @@ async def chat(
         {"answer": "...", "route": "knowledge"}
     """
     # 1. 调 service（业务逻辑）
+    logger.info(f"用户 {current_user} 提出问题  session_id: {req.session_id}")
     user_key = f"rate_limit:user:{req.session_id}"
     await limiter.check(user_key)
     result = await service.ask(
