@@ -31,3 +31,5 @@ test_vision.py
 test_data
 main_vision_rag.py
 logs/
+local_reranker/
+local_model/

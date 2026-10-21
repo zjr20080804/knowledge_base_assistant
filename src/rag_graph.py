@@ -43,7 +43,7 @@ def trim_by_docs(docs: list, max_tokens: int) -> str:
 
 def build_rag_graph(retriever):
     llm = get_llm()
-    reranker = CrossEncoder("BAAI/bge-reranker-v2-m3")
+    reranker = CrossEncoder("/app/local_reranker/")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "你是一个知识库助手。以下是检索到的参考资料，请基于资料回答用户问题。"),

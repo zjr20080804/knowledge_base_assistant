@@ -12,4 +12,4 @@ def get_llm(streaming=False):
     )
 
 def embeddings():
-    return HuggingFaceEmbeddings(model_name=cfg.embedding_model)
+    return HuggingFaceEmbeddings(model_name="/app/local_model")

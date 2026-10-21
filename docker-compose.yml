@@ -11,11 +11,15 @@ services:
     container_name: kb-app
     depends_on:
       - redis
+    ports:
+      - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
       - LANGSMITH_PROJECT=kb-assistant
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-super-secret-key-change_me}
+      - DEBUG=false
     volumes:
-      - .data:/app/data
+      - ./data:/app/data
       - ./chroma_db:/app/chroma_db
     env_file:
       - ./.env
