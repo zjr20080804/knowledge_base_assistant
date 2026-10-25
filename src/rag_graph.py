@@ -1,4 +1,5 @@
 import operator
+import os
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage, AIMessage
@@ -8,6 +9,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.redis import RedisSaver
 from sentence_transformers import CrossEncoder
 import tiktoken
+import src.config as cfg
 
 from src.model import get_llm
 
@@ -43,7 +45,13 @@ def trim_by_docs(docs: list, max_tokens: int) -> str:
 
 def build_rag_graph(retriever):
     llm = get_llm()
-    reranker = CrossEncoder("/app/local_reranker/")
+    docker_path ="/app/local_reranker"
+    if os.path.exists(docker_path):
+        model_path = docker_path
+    else:
+        # 本地环境路径 (指向你本地 E:\...\demo\local_model)
+        model_path = str(cfg.root_dir / "local_reranker")
+    reranker = CrossEncoder(model_name=model_path)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "你是一个知识库助手。以下是检索到的参考资料，请基于资料回答用户问题。"),
