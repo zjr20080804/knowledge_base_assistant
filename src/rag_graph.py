@@ -1,6 +1,6 @@
 import operator
 import os
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, final
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -8,11 +8,12 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.redis import RedisSaver
 from sentence_transformers import CrossEncoder
+from langchain_core.messages import AnyMessage
 import tiktoken
 import src.config as cfg
-
 from src.model import get_llm
-
+from src.tools import tools
+from langgraph.prebuilt import ToolNode,tools_condition
 
 class RAGState(TypedDict):
     question: str
@@ -22,7 +23,7 @@ class RAGState(TypedDict):
     route:str
     answer: str
     image_url: str
-    messages: Annotated[list, operator.add]
+    messages: Annotated[list[AnyMessage], operator.add]
 
 
 def format_docs(docs):
@@ -45,6 +46,7 @@ def trim_by_docs(docs: list, max_tokens: int) -> str:
 
 def build_rag_graph(retriever):
     llm = get_llm()
+    llm_with_tools = llm.bind_tools(tools)
     docker_path ="/app/local_reranker"
     if os.path.exists(docker_path):
         model_path = docker_path
@@ -70,7 +72,7 @@ def build_rag_graph(retriever):
     CLASSIFY_PROMPT = """判断用户问题属于哪一类：
 
     - knowledge：需要查知识库才能回答（游戏设定、角色信息、玩法规则等）
-    - chat：回顾对话、闲聊、问候（如"刚才聊了什么"、"你好"）
+    - chat：回顾对话、闲聊、问候（如"刚才聊了什么","你好","今天北京天气怎么样"）
 
     只输出一个词：knowledge 或 chat
 
@@ -154,27 +156,18 @@ def build_rag_graph(retriever):
         print(f"[reduce] 合并后 context 字数：{len(final_context)}")
         return {"context": final_context}
 
-    CHAT_PROMPT = """你是知识库助手。根据对话历史回答用户的问题。
-
-    对话历史：
-    {history}
-
-    用户问题：{question}
+    CHAT_PROMPT = """你是知识库助手,可以回答用户的问题。如果遇到不确定的实时信息(比如说问天气),请调用工具
     """
 
     def chat_node(state: RAGState):
-        history = "\n".join(
-            f"[{m.name or m.type}]: {m.content[:200]}"
-            for m in state["messages"]
-        ) or "（无历史）"
-
-        prompt = ChatPromptTemplate.from_template(CHAT_PROMPT)
-        chain = prompt | llm | StrOutputParser()
-        answer = chain.invoke({
-            "question": state["question"],
-            "history": history,
-        })
-        return {"answer": answer}
+        prompt = ChatPromptTemplate.from_messages([
+            ("system",CHAT_PROMPT),
+            MessagesPlaceholder(variable_name="messages")
+        ,
+            ("human","{question}")])
+        chain = prompt | llm_with_tools
+        response = chain.invoke({"messages":state["messages"],"question":state["question"]})
+        return {"messages":[response]}
 
     def generate_node(state: RAGState):
         #context = trim_by_docs(state["context_docs"], MAX_TOKENS)
@@ -199,10 +192,18 @@ def build_rag_graph(retriever):
         return {"answer": answer}
 
     def update_history_node(state: RAGState):
+        messages = state["messages"]
+        final_answer = ""
+        for msg in reversed(messages):
+            if msg.type == "ai" and msg.content:
+                final_answer = msg.content
+                break
+
         return {"messages": [
             HumanMessage(content=state["question"]),
-            AIMessage(content=state["answer"]),
-        ]}
+            AIMessage(content=state["answer"])],
+            "answer":final_answer
+        }
 
     builder = StateGraph(RAGState)
     builder.add_node("classify", classify_node)
@@ -213,6 +214,7 @@ def build_rag_graph(retriever):
     #builder.add_node("compress", compress_node)
     builder.add_node("map_summarize", map_summarize_node)
     builder.add_node("reduce_summarize", reduce_summarize_node)
+    builder.add_node("tools",ToolNode(tools))
 
     builder.add_edge(START, "classify")
     builder.add_conditional_edges("classify",lambda s:s["route"],{
@@ -223,7 +225,8 @@ def build_rag_graph(retriever):
     builder.add_edge("map_summarize", "reduce_summarize")
     builder.add_edge("reduce_summarize", "generate")
     builder.add_edge("generate", "update_history")
-    builder.add_edge("chat", "update_history")
+    builder.add_conditional_edges("chat",tools_condition,{"tools":"tools",END:"update_history"})
+    builder.add_edge("tools","chat")
     builder.add_edge("update_history", END)
 
     return builder
