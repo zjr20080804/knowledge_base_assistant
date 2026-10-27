@@ -46,7 +46,10 @@ def trim_by_docs(docs: list, max_tokens: int) -> str:
 
 def build_rag_graph(retriever):
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(tools)
+    if os.getenv("MOCK_LLM") == "1":
+        llm_with_tools = llm
+    else:
+        llm_with_tools = llm.bind_tools(tools)
     docker_path ="/app/local_reranker"
     if os.path.exists(docker_path):
         model_path = docker_path
