@@ -1,7 +1,7 @@
 import operator
 import os
 from typing import Annotated, TypedDict, final
-
+import asyncio
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -82,24 +82,24 @@ def build_rag_graph(retriever):
     问题：{question}
     """
 
-    def classify_node(state: RAGState):
+    async def classify_node(state: RAGState):
         prompt = ChatPromptTemplate.from_template(CLASSIFY_PROMPT)
         chain = prompt | llm | StrOutputParser()
-        route = chain.invoke({"question": state["question"]}).strip()
+        route = (await chain.ainvoke({"question": state["question"]})).strip()
         if route not in ("knowledge", "chat"):
             route = "knowledge"  # 兜底
         print(f"[classify] 路由：{route}")
         return {"route": route}
 
-    def retrieve_node(state: RAGState):
+    async def retrieve_node(state: RAGState):
         # 第 1 步：粗筛，向量检索拿 Top-20
         question = state["question"]
-        candidates = retriever.invoke(question)
+        candidates = await asyncio.to_thread(retriever.invoke,question)
         print(f"retrieve侯选数：{len(candidates)}")
 
         # 第 2 步：精排，Rerank 给每个候选打分
         pairs = [(question, doc.page_content) for doc in candidates]
-        scores = reranker.predict(pairs)
+        scores = await asyncio.to_thread(reranker.predict,pairs)
 
         # 第 3 步：按分数从高到低排序，取 Top-3
         scored_docs = list(zip(candidates, scores))
@@ -138,21 +138,21 @@ def build_rag_graph(retriever):
     
     """
 
-    def map_summarize_node(state: RAGState):
+    async def map_summarize_node(state: RAGState):
         prompt = ChatPromptTemplate.from_messages([("system", MAP_PROMPT)])
         chain = prompt | llm | StrOutputParser()
         summaries = []
         for doc in state["context_docs"]:
-            s = chain.invoke({"context": doc})
+            s = await chain.ainvoke({"context": doc})
             summaries.append(s)
         print(f"[map] 共 {len(summaries)} 段摘要")
         return {"partial_summaries": summaries}
 
-    def reduce_summarize_node(state: RAGState):
+    async def reduce_summarize_node(state: RAGState):
         summaries_text = "\n\n".join(state["partial_summaries"])
         prompt = ChatPromptTemplate.from_messages([("system", REDUCE_PROMPT)])
         chain = prompt | llm | StrOutputParser()
-        final_context = chain.invoke({
+        final_context = await chain.ainvoke({
             "question": state["question"],
             "summaries": summaries_text,
         })
@@ -162,23 +162,23 @@ def build_rag_graph(retriever):
     CHAT_PROMPT = """你是知识库助手,可以回答用户的问题。如果遇到不确定的实时信息(比如说问天气),请调用工具
     """
 
-    def chat_node(state: RAGState):
+    async def chat_node(state: RAGState):
         prompt = ChatPromptTemplate.from_messages([
             ("system",CHAT_PROMPT),
             MessagesPlaceholder(variable_name="messages")
         ,
             ("human","{question}")])
         chain = prompt | llm_with_tools
-        response = chain.invoke({"messages":state["messages"],"question":state["question"]})
+        response = await chain.ainvoke({"messages":state["messages"],"question":state["question"]})
         return {"messages":[response]}
 
-    def generate_node(state: RAGState):
+    async def generate_node(state: RAGState):
         #context = trim_by_docs(state["context_docs"], MAX_TOKENS)
         #print(f"trim后token数：{len(ENCODER.encode(context))}")
 
         if state["image_url"]:
             chain = vision_prompt|llm|StrOutputParser()
-            answer = chain.invoke({
+            answer = await chain.ainvoke({
                 "context": state["context"],
                 "question": state["question"],
                 "messages": state["messages"],
@@ -187,7 +187,7 @@ def build_rag_graph(retriever):
 
         else:
             chain = prompt | llm | StrOutputParser()
-            answer = chain.invoke({
+            answer = await chain.ainvoke({
             "context": state["context"],
             "question": state["question"],
             "messages": state["messages"],
