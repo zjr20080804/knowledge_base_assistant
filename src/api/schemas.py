@@ -10,9 +10,6 @@ API 请求 / 响应模型
 from pydantic import BaseModel, Field
 
 
-# ============================================================
-# 请求模型
-# ============================================================
 
 class ChatRequest(BaseModel):
     """
@@ -40,7 +37,10 @@ class ChatRequest(BaseModel):
         description="会话 ID，用于隔离不同用户的对话历史",
         examples=["user_001"],
     )
-
+    image_url:str = Field(
+        default="",
+        description="图片的Base64 Data Url(可不填)"
+    )
 
 # ============================================================
 # 响应模型
@@ -62,10 +62,9 @@ class ChatResponse(BaseModel):
         description="LLM 生成的回答",
     )
 
-    route: str | None = Field(
-        default=None,
-        description="本次走的路由（knowledge / chat），便于调试",
-    )
+    has_tool_call:bool=Field(
+        default=False,
+    description="是否调用了工具")
 
 
 class HealthResponse(BaseModel):

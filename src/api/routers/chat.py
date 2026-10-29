@@ -6,14 +6,12 @@ Chat 路由
 - 解析请求 → 调 service → 返回响应
 - 不写业务逻辑（业务逻辑在 RagService 里）
 """
-
+from langchain_core.output_parsers import StrOutputParser
 from fastapi import APIRouter, Depends,Request
 from fastapi.responses import StreamingResponse
-from src.api.deps import get_rag_service,get_rate_limiter
+from src.api.deps import get_graph,get_rate_limiter,get_current_user
 from src.api.schemas import ChatRequest, ChatResponse
-from src.api.services.rag_service import RagService
 from src.api.services.rate_limiter import RateLimiter
-from src.api.deps import get_current_user
 from src.api.logger import logger
 
 router = APIRouter(tags=["chat"])
@@ -22,32 +20,32 @@ router = APIRouter(tags=["chat"])
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    service: RagService = Depends(get_rag_service),
+    graph = Depends(get_graph),
     limiter: RateLimiter = Depends(get_rate_limiter),
  current_user: str = Depends(get_current_user)
 ) -> ChatResponse:
-    """
-    知识库问答接口
 
-    请求体：
-        {"question": "游戏主角是谁？", "session_id": "user_001"}
-
-    响应体：
-        {"answer": "...", "route": "knowledge"}
-    """
-    # 1. 调 service（业务逻辑）
     logger.info(f"用户 {current_user} 提出问题  session_id: {req.session_id}")
-    user_key = f"rate_limit:user:{req.session_id}"
+    user_key = f"rate_limit:user:{current_user}"
     await limiter.check(user_key)
-    result = await service.ask(
-        question=req.question,
-        thread_id=req.session_id,    # ← 注意：session_id 映射为 thread_id
-    )
 
+    config = {"configurable":{"thread_id":req.session_id}}
+    initial_state = {
+        "question":req.question,
+        "image_url":req.image_url if hasattr(req,"image_url") else ""
+    }
+
+    result = await graph.ainvoke(initial_state,config)
+    final_answer=result["messages"][-1].content
+
+    has_tool_call =False
+    if len(result["messages"]) >= 2:
+        if result["messages"][-2].type == "tool":
+            has_tool_call = True
     # 2. 包装成响应模型
     return ChatResponse(
-        answer=result["answer"],
-        route=result.get("route"),
+        answer=final_answer,
+        route="tool_call" if has_tool_call else "chat"
     )
 
 

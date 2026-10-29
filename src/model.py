@@ -13,7 +13,8 @@ def get_llm(streaming=False):
         api_key=cfg.DeepSeek_API_Key,
         base_url=cfg.DeepSeek_API_URL,
         temperature=0.7,
-        streaming=streaming
+        streaming=streaming,
+        extra_body={"thinking":{"type":"disabled"}}
     )
 
 

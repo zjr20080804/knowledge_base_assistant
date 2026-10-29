@@ -10,7 +10,6 @@ FastAPI 主入口
 import os
 from contextlib import asynccontextmanager
 
-
 from fastapi import FastAPI
 from langgraph.checkpoint.redis import AsyncRedisSaver   # ← 换成 Async 版本
 import redis.asyncio as aioredis
@@ -22,10 +21,6 @@ from src.config import REDIS_TTL,REDIS_URL
 from src.api.logger import setup_logging,logger
 from src.api.exceptions import AppError
 from src.api.error_handlers import app_error_handler,unhandled_exception_handler
-
-# ============================================================
-# lifespan：启动/关闭逻辑
-# ============================================================
 setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,44 +30,35 @@ async def lifespan(app: FastAPI):
     yield 之前：启动时执行（只一次）
     yield 之后：关闭时执行（只一次）
     """
-    # ---------- 启动 ----------
+
     logger.info("=" * 60)
     logger.info("🚀 正在启动知识库问答服务...")
     logger.info("=" * 60)
 
-    # 第 1 步：构建 retriever
     logger.info("[lifespan] 加载文档...")
     retriever,chunks= build_retriever()
     logger.info("[lifespan] retriever 构建完成")
 
-    # ---------- 第 2 步：用 AsyncRedisSaver 连接 Redis + 编译图 ----------
     logger.info("[lifespan] 连接 Redis 并编译图...")
 
-    #创建独立的Redis客户端(用于readiness探针)
     redis_client = aioredis.from_url(REDIS_URL,decode_responses = True)
     app.state.redis_client = redis_client
 
-    # ★ async with：让 saver 在整个应用运行期都活着
     async with AsyncRedisSaver.from_conn_string(
         REDIS_URL,
         ttl={"default_ttl": REDIS_TTL, "refresh_on_read": True},
     ) as memory:
-        # 异步 setup（初始化 Redis 结构）
         await memory.asetup()
-
-        # 编译图，绑定异步 checkpointer
         graph = build_rag_graph(retriever).compile(checkpointer=memory)
 
         # 存进 app.state
         app.state.graph = graph
         app.state.retriever = retriever
 
-        logger.info("[lifespan] ✅ 服务启动完成")
+        logger.info("[lifespan]  服务启动完成")
         logger.info("=" * 60)
 
-        yield   # ← 服务在这里开始接收请求（yield 必须在 async with 内部！）
-
-    # async with 退出，saver 自动关闭
+        yield
     await redis_client.aclose()
     logger.info("[lifespan] Redis 连接已关闭")
 
@@ -89,9 +75,6 @@ app = FastAPI(
 )
 
 
-# ============================================================
-# 挂载路由
-# ============================================================
 
 app.include_router(health.router)
 app.include_router(chat.router)
