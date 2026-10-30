@@ -1,26 +1,8 @@
-"""
-API 请求 / 响应模型
-
-作用：
-- 定义客户端发来的 JSON 长什么样（请求）
-- 定义服务端返回的 JSON 长什么样（响应）
-- FastAPI 用这些模型做自动校验 + 自动生成 /docs
-"""
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 
 class ChatRequest(BaseModel):
-    """
-    POST /chat 的请求体
-
-    示例请求：
-        {
-            "question": "游戏主角是谁？",
-            "session_id": "user_001"
-        }
-    """
 
     question: str = Field(
         ...,
@@ -37,25 +19,24 @@ class ChatRequest(BaseModel):
         description="会话 ID，用于隔离不同用户的对话历史",
         examples=["user_001"],
     )
-    image_url:str = Field(
+    image_url: str = Field(
         default="",
-        description="图片的Base64 Data Url(可不填)"
+        max_length=8_000_000,
+        description="图片的 Base64 Data URL（可不填），必须是 data:image/<type>;base64,<data> 形式",
     )
 
-# ============================================================
-# 响应模型
-# ============================================================
+    @field_validator("image_url")
+    @classmethod
+    def _check_image_url(cls, v: str) -> str:
+        if not v:
+            return v
+        head = v[:64]
+        if not (head.startswith("data:image/") and ";base64," in head):
+            raise ValueError("image_url 必须是 data:image/<type>;base64,<data> 形式的 Data URL")
+        return v
+
 
 class ChatResponse(BaseModel):
-    """
-    POST /chat 的响应体
-
-    示例响应：
-        {
-            "answer": "游戏主角是……",
-            "route": "knowledge"
-        }
-    """
 
     answer: str = Field(
         ...,
@@ -68,7 +49,6 @@ class ChatResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """GET /health 的响应体"""
 
     status: str = Field(
         default="ok",

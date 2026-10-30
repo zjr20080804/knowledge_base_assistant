@@ -73,14 +73,11 @@ def build_plan_graph(retriever):
         return {"plan": result["steps"]}
 
     def executor_node(state: PlanState):
-        # 1. 取当前步骤
         current_step = state["plan"][0]
 
-        # 2. 用这个步骤作为 query 检索
         docs = retriever.invoke(current_step)
         context = format_docs(docs)
 
-        # 3. 让 LLM 基于检索结果生成这一步的回答
         prompt = ChatPromptTemplate.from_template(execute_prompt)
         chain = prompt | llm | StrOutputParser()
         step_result = chain.invoke({
@@ -88,18 +85,15 @@ def build_plan_graph(retriever):
             "context": context,
         })
 
-        # 4. 返回：追加 past_steps，移除已执行的 plan
         return {
             "past_steps": [(current_step, step_result)],
             "plan": state["plan"][1:],
         }
 
     def replanner_node(state: PlanState):
-        # 情况 1：还有步骤 → 继续
         if state["plan"]:
             return {"plan": state["plan"]}
 
-        # 情况 2：没步骤了 → 汇总
         prompt = ChatPromptTemplate.from_template(summary_prompt)
         chain = prompt | llm | StrOutputParser()
         response = chain.invoke({

@@ -39,7 +39,6 @@ reviewer(审核员)审核通过后，回复FINISH
 def build_multi_agent_graph():
     llm = get_llm()
 
-    # ---- 主管节点 ----
     def supervisor_node(state: MultiAgentState):
         history_text = "\n".join(
             f"[{m.name or m.type}]: {m.content[:200]}"
@@ -52,25 +51,21 @@ def build_multi_agent_graph():
             "history": history_text or "（还没开始）",
         }).strip()
 
-        # 只保留合法值
         if decision not in ("researcher", "writer", "reviewer", "FINISH"):
             decision = "FINISH"
 
         return {"next": decision}
 
-    # ---- 研究员节点 ----
     def researcher_node(state: MultiAgentState):
         prompt = f"你是研究员。针对以下任务检索/整理关键信息，简洁输出：\n\n{state['task']}"
         result = llm.invoke(prompt)
         return {"messages": [AIMessage(content=result.content, name="researcher")]}
 
-    # ---- 写作者节点 ----
     def writer_node(state: MultiAgentState):
         prompt = f"你是写作者。基于现有信息，撰写一段内容：\n\n任务：{state['task']}\n\n现有信息：\n{chr(10).join(m.content for m in state['messages'] if m.name == 'researcher')}"
         result = llm.invoke(prompt)
         return {"messages": [AIMessage(content=result.content, name="writer")]}
 
-    # ---- 审核员节点 ----
     def reviewer_node(state: MultiAgentState):
         writer_message = [m for m in state["messages"] if m.name == "writer"]
         if not writer_message:
@@ -80,11 +75,9 @@ def build_multi_agent_graph():
         result = llm.invoke(prompt)
         return {"messages": [AIMessage(content=result.content, name="reviewer")]}
 
-    # ---- 路由函数 ----
     def route(state: MultiAgentState):
         return state["next"]
 
-    # ---- 构图 ----
     builder = StateGraph(MultiAgentState)
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("researcher", researcher_node)

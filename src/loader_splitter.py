@@ -15,7 +15,7 @@ def load_split():
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=200,
         chunk_overlap=50,
-        separators=["\n\n", "\n", "", ",", " "],
+        separators=["\n\n", "\n", "。", "！", "？", "；", "，", "、", " ", ""],
     )
     chunks = splitter.split_documents(docs)
     print(f"切出了{len(chunks)}个文档")

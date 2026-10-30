@@ -13,6 +13,5 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(req: LoginRequest):
-    """获取 Token 接口"""
     token = AuthService.create_access_token(req.username)
     return LoginResponse(access_token=token)

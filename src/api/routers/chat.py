@@ -1,98 +1,131 @@
-"""
-Chat 路由
+import asyncio
+import json
 
-职责：
-- 暴露 POST /chat 接口
-- 解析请求 → 调 service → 返回响应
-- 不写业务逻辑（业务逻辑在 RagService 里）
-"""
-from langchain_core.output_parsers import StrOutputParser
-from fastapi import APIRouter, Depends,Request
+from langchain_core.messages import AIMessage
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from src.api.deps import get_graph,get_rate_limiter,get_current_user
+
+from src.api.deps import get_graph, get_rate_limiter, get_current_user
 from src.api.schemas import ChatRequest, ChatResponse
 from src.api.services.rate_limiter import RateLimiter
 from src.api.logger import logger
+from src.api.exceptions import RagServiceError
+from src.rag_graph import CHAT_NODE, build_user_message
 
 router = APIRouter(tags=["chat"])
+
+CHAT_TIMEOUT = 60
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _message_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return "" if content is None else str(content)
+
+
+def _thread_config(session_id: str) -> dict:
+    return {"configurable": {"thread_id": session_id}, "recursion_limit": 20}
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    graph = Depends(get_graph),
+    graph=Depends(get_graph),
     limiter: RateLimiter = Depends(get_rate_limiter),
- current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
 ) -> ChatResponse:
-
     logger.info(f"用户 {current_user} 提出问题  session_id: {req.session_id}")
-    user_key = f"rate_limit:user:{current_user}"
-    await limiter.check(user_key)
+    await limiter.check(f"rate_limit:user:{current_user}")
 
-    config = {"configurable":{"thread_id":req.session_id}}
-    initial_state = {
-        "question":req.question,
-        "image_url":req.image_url if hasattr(req,"image_url") else ""
-    }
+    config = _thread_config(req.session_id)
+    initial_state = {"messages": [build_user_message(req.question, req.image_url)]}
 
-    result = await graph.ainvoke(initial_state,config)
-    final_answer=result["messages"][-1].content
+    before = await graph.aget_state(config)
+    n_before = len((before.values or {}).get("messages") or []) if before else 0
 
-    has_tool_call =False
-    if len(result["messages"]) >= 2:
-        if result["messages"][-2].type == "tool":
-            has_tool_call = True
-    # 2. 包装成响应模型
+    try:
+        result = await asyncio.wait_for(
+            graph.ainvoke(initial_state, config), timeout=CHAT_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"问答超时 session_id={req.session_id}")
+        raise RagServiceError("模型响应超时，请稍后重试")
+
+    messages = result["messages"]
+    new_messages = messages[n_before:]
+    has_tool_call = any(m.type == "tool" for m in new_messages)
+
     return ChatResponse(
-        answer=final_answer,
-        route="tool_call" if has_tool_call else "chat"
+        answer=_message_text(messages[-1].content),
+        has_tool_call=has_tool_call,
     )
 
 
 @router.post("/chat/stream")
 async def chat_stream(
-        req: ChatRequest,
-        request: Request,
-        limiter: RateLimiter = Depends(get_rate_limiter),
-        current_user: str = Depends(get_current_user),
+    req: ChatRequest,
+    request: Request,
+    graph=Depends(get_graph),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+    current_user: str = Depends(get_current_user),
 ):
-    """
-    流式问答接口（SSE，打字机效果）
-    """
     logger.info(f"用户 {current_user} 发起了流式提问")
-
-    # 1. 同样要检查限流！
     await limiter.check(f"rate_limit:user:{current_user}")
 
-    # 2. 从 app.state 获取 graph
-    graph = request.app.state.graph
+    config = _thread_config(req.session_id)
+    initial_state = {"messages": [build_user_message(req.question, req.image_url)]}
 
-    # 3. 构造运行配置
-    config = {"configurable": {"thread_id": req.session_id}}
-    initial_state = {
-        "question": req.question,
-        "image_url": "",
-        "context": "",
-        "answer": "",
-    }
-
-    # 4. 定义异步生成器
     async def event_generator():
+        emitted = 0
         try:
-            # 使用官方推荐的 astream 方法，stream_mode="messages" 可以直接提取大模型的流式输出
-            async for msg, metadata in graph.astream(initial_state, config=config, stream_mode="messages"):
-                # 过滤出真正的 AI 消息文本（忽略工具调用等）
-                node_name = metadata.get("langgraph_node","")
-                if node_name in ["chat","generate"]:
+            async for chunk, meta in graph.astream(
+                initial_state, config=config, stream_mode="messages"
+            ):
+                if meta.get("langgraph_node") != CHAT_NODE:
+                    continue
+                if not isinstance(chunk, AIMessage):
+                    continue
+                if getattr(chunk, "tool_call_chunks", None):
+                    continue
 
-                    if msg.content and not isinstance(msg, dict):
-                    # SSE 格式要求：data: <内容>\n\n
-                        yield f"data: {msg.content}\n\n"
-        except Exception as e:
-            logger.error(f"流式生成报错: {e}")
-            yield f"data: [错误] 生成中断: {str(e)}\n\n"
-        finally:
-            yield "data: [DONE]\n\n"
+                text = _message_text(chunk.content)
+                if not text:
+                    continue
 
-    # 5. 返回流式响应，Content-Type 必须是 text/event-stream
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+                if await request.is_disconnected():
+                    return
+                emitted += 1
+                yield _sse({"type": "delta", "content": text})
+
+            if emitted == 0:
+                logger.warning(
+                    f"流式 0 帧输出 session_id={req.session_id}， "
+                    f"检查节点名是否仍为 {CHAT_NODE}、模型是否 streaming=True"
+                )
+            yield _sse({"type": "done"})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(f"流式生成失败 session_id={req.session_id}")
+            yield _sse({"type": "error", "message": "生成中断，请重试"})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

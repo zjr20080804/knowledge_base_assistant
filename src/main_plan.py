@@ -6,7 +6,6 @@ from src.config import vectorstore_dir
 
 
 def main():
-    # 准备向量库
     chunks = load_split()
     if not os.path.exists(vectorstore_dir):
         vectorstore = create_vectorstore(chunks)
@@ -14,7 +13,6 @@ def main():
         vectorstore = load_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
-    # 建图
     graph = build_plan_graph(retriever).compile()
 
     task = "对比《猫和老鼠》手游里的杰瑞和汤姆两个角色，给新手推荐一个"
