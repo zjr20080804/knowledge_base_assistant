@@ -1,9 +1,14 @@
 import os
-from contextlib import asynccontextmanager
+import sys
+from contextlib import asynccontextmanager,AsyncExitStack
 
 from fastapi import FastAPI
 from langgraph.checkpoint.redis import AsyncRedisSaver
-import redis.asyncio as aioredis
+from redis import asyncio as aioredis
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from langchain_mcp_adapters.tools import load_mcp_tools
+
 
 from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph
@@ -15,26 +20,33 @@ from src.api.error_handlers import app_error_handler,unhandled_exception_handler
 setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    async with AsyncExitStack() as stack:
+        logger.info("=" * 60)
+        logger.info("🚀 正在启动知识库问答服务...")
+        logger.info("=" * 60)
 
-    logger.info("=" * 60)
-    logger.info("🚀 正在启动知识库问答服务...")
-    logger.info("=" * 60)
+        logger.info("[lifespan] 加载文档...")
+        retriever,chunks= build_retriever()
+        logger.info("[lifespan] retriever 构建完成")
 
-    logger.info("[lifespan] 加载文档...")
-    retriever,chunks= build_retriever()
-    logger.info("[lifespan] retriever 构建完成")
+        logger.info("[lifespan] 连接 Redis 并编译图...")
 
-    logger.info("[lifespan] 连接 Redis 并编译图...")
+        redis_client = aioredis.from_url(REDIS_URL,decode_responses = True)
+        app.state.redis_client = redis_client
+        stack.push_async_callback(redis_client.aclose)
 
-    redis_client = aioredis.from_url(REDIS_URL,decode_responses = True)
-    app.state.redis_client = redis_client
+        memory = await stack.enter_async_context(AsyncRedisSaver.from_conn_string(REDIS_URL,
+        ttl={"default_ttl": 1800, "refresh_on_read": True}))
 
-    async with AsyncRedisSaver.from_conn_string(
-        REDIS_URL,
-        ttl={"default_ttl": REDIS_TTL, "refresh_on_read": True},
-    ) as memory:
-        await memory.asetup()
-        graph = build_rag_graph(retriever).compile(checkpointer=memory)
+
+        server_params = StdioServerParameters(command=sys.executable,
+        args=["E:\\python\\PythonProject1\\练习\\mcp_step1_files.py"])
+        read, write = await stack.enter_async_context(stdio_client(server_params))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        mcp_tools = await load_mcp_tools(session)
+
+        graph = build_rag_graph(retriever,extra_tools=mcp_tools).compile(checkpointer=memory)
 
         app.state.graph = graph
         app.state.retriever = retriever
@@ -43,8 +55,7 @@ async def lifespan(app: FastAPI):
         logger.info("=" * 60)
 
         yield
-    await redis_client.aclose()
-    logger.info("[lifespan] Redis 连接已关闭")
+
 
 
 

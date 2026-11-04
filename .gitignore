@@ -33,3 +33,5 @@ main_vision_rag.py
 logs/
 local_reranker/
 local_model/
+MessageHistory.py
+RedisHistory

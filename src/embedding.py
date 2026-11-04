@@ -20,6 +20,3 @@ def load_vectorstore():
     )
     print(f"向量库已加载:{cfg.vectorstore_dir}")
     return vectorstore
-
-def get_retriever(vectorstore):
-    return vectorstore.as_retriever(search_kwargs={"k": cfg.Retrieval_k})

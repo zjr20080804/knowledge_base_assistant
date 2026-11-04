@@ -2,15 +2,13 @@ import os
 
 from langchain_community.retrievers import BM25Retriever
 
-from src.config import vectorstore_dir
+from src.config import Retrieval_k, vectorstore_dir
 from src.loader_splitter import load_split
 from src.embedding import create_vectorstore, load_vectorstore
 
 
 
 def hybrid_retrieve(question, vector_retriever, bm25_retriever, k: int = 6, rrf_k: int = 60):
-    vector_docs = vector_retriever.invoke(question)
-    bm25_docs = bm25_retriever.invoke(question)
 
     scores = {}
     doc_map = {}
@@ -47,9 +45,9 @@ def build_retriever():
         print("  加载已有向量库...")
         vectorstore = load_vectorstore()
 
-    vectorstore_retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+    vectorstore_retriever = vectorstore.as_retriever(search_kwargs={"k": Retrieval_k})
     bm25_retriever = BM25Retriever.from_documents(chunks)
-    bm25_retriever.k = 6
+    bm25_retriever.k = Retrieval_k
 
     retriever = HybridRetriever(vectorstore_retriever, bm25_retriever)
     print("[factory] retriever 构建完成")

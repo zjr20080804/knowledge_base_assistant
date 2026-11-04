@@ -1,6 +1,6 @@
 import logging
 import sys
-from pathlib import Path
+
 
 from src.config import root_dir
 

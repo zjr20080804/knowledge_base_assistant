@@ -37,9 +37,11 @@ def build_user_message(question: str, image_url: str = "") -> HumanMessage:
     return HumanMessage(content=content)
 
 
-def build_rag_graph(retriever):
+def build_rag_graph(retriever,extra_tools=None):
     llm = get_llm()
     tools = [get_weather, create_search_tool(retriever, llm)]
+    if extra_tools:
+        tools.extend(extra_tools)
     tool_node = ToolNode(tools)
     builder = StateGraph(RAGState)
 

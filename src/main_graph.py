@@ -1,9 +1,15 @@
 import os
+import sys
 import base64
 import asyncio
 import mimetypes
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager,AsyncExitStack
 from langgraph.checkpoint.redis import AsyncRedisSaver
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from langchain_mcp_adapters.tools import load_mcp_tools
+from redis import asyncio as aioredis
+
 
 from src.rag_factory import build_retriever
 from src.rag_graph import build_rag_graph, build_user_message
@@ -20,25 +26,32 @@ def build_image_data_url(image_path: str) -> str:
 
 @asynccontextmanager
 async def prepare_graph():
-    print("#" * 60)
-    print("📚 知识库问答助手（LangGraph Agent 版）")
-    print("#" * 60)
+    async with AsyncExitStack() as stack:
+        print("#" * 60)
+        print("📚 知识库问答助手（LangGraph Agent 版）")
+        print("#" * 60)
 
-    retriever, chunks = build_retriever()
-    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        retriever, chunks = build_retriever()
+        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
+        stack.push_async_callback(redis_client.aclose)
 
-    async with AsyncRedisSaver.from_conn_string(
-            REDIS_URL,
-            ttl={"default_ttl": 1800, "refresh_on_read": True},
-    ) as memory:
-        await memory.asetup()
-        graph = build_rag_graph(retriever).compile(checkpointer=memory)
-        print("✅ LangGraph 图已就绪\n")
+        memory = await stack.enter_async_context(AsyncRedisSaver.from_conn_string(redis_client= redis_client,
+        ttl={"default_ttl": 1800, "refresh_on_read": True}))
+
+
+        server_params = StdioServerParameters(command=sys.executable,
+        args=["E:\\python\\PythonProject1\\练习\\mcp_step1_files.py"])
+        read, write = await stack.enter_async_context(stdio_client(server_params))
+        session = await stack.enter_async_context(ClientSession(read,write))
+        await session.initialize()
+        mcp_tools = await load_mcp_tools(session)
+
+        graph = build_rag_graph(retriever, extra_tools=mcp_tools).compile(checkpointer=memory)
+
 
         yield graph
-
-        print("正在关闭 Redis 连接...")
-
+    print(f"资源释放完毕")
 
 async def main():
     async with prepare_graph() as graph:
